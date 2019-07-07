@@ -53,6 +53,7 @@ spec:
   ports:
     - port: 8080
       targetPort: 8080
+      nodePort: 30500
       name: registry
   selector:
     app: registry
@@ -60,7 +61,7 @@ spec:
   type: NodePort
 ---
 
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: registry
@@ -69,6 +70,10 @@ metadata:
 spec:
   strategy:
     type: Recreate
+  selector:
+    matchLabels:
+      app: registry
+      tier: registry
   template:
     metadata:
       labels:

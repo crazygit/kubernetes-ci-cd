@@ -31,7 +31,7 @@ kind: ServiceAccount
 metadata:
   name: jenkins
   namespace: default
-automountServiceAccountToken: true
+automountServiceAccountToken: true # this will automatically mount the authentication resources needed for a kubeconfig context to be setup on the pod (i.e. Cluster info, User represented by a token and a Namespace).
 
 ---
 
@@ -60,9 +60,9 @@ data:
     #!/bin/bash -v
 
     kubectl config set-credentials jenkins --token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-    kubectl config set-cluster minikube --server="https://192.168.99.100:8443" --certificate-authority="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-    kubectl config set-context jenkins-minikube --cluster=minikube --user=jenkins --namespace=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
-    kubectl config use-context jenkins-minikube
+    kubectl config set-cluster kubernetes --server="https://192.168.2.125:6443" --certificate-authority="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    kubectl config set-context jenkins@kubernetes --cluster=kubernetes --user=jenkins --namespace=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+    kubectl config use-context jenkins@kubernetes
     chmod 755 ~/.kube/config
 
 ---
@@ -77,6 +77,7 @@ spec:
   ports:
     - port: 80
       targetPort: 8080
+      nodePort: 30600
   selector:
     app: jenkins
     tier: jenkins
@@ -84,7 +85,7 @@ spec:
 
 ---
 
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jenkins
@@ -93,6 +94,10 @@ metadata:
 spec:
   strategy:
     type: Recreate
+  selector:
+    matchLabels:
+      app: jenkins
+      tier: jenkins
   template:
     metadata:
       labels:
@@ -100,8 +105,10 @@ spec:
         tier: jenkins
     spec:
       serviceAccountName: jenkins
+      # securityContext:   hostPath类型不支持该操作，只能单独从initContainers修改目录的权限
+      #  fsGroup: 1000
       initContainers:
-      - image: lachlanevenson/k8s-kubectl:v1.11.2
+      - image: lachlanevenson/k8s-kubectl:v1.14.2
         name: kubectl-config
         command:
         - "/bin/sh"
@@ -113,6 +120,12 @@ spec:
         - name: kubectl-jenkins-context
           mountPath: "/kubectl-config-context.sh"
           subPath: "kubectl-config-context.sh"
+      - image: busybox
+        name: fix-permission
+        command: ['/bin/chown', '-R', '1000:1000', '/var/jenkins_home/']
+        volumeMounts:
+        - name: jenkins-persistent-storage
+          mountPath: /var/jenkins_home
       containers:
       - image: 127.0.0.1:30400/jenkins:latest
         name: jenkins
